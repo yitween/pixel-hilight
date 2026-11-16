@@ -6,14 +6,14 @@ plugins {
 
 android {
     namespace = "com.custom.pixelhilight"
-    compileSdk = 37 // Android 17 (Pixel 11 Pro)
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.custom.pixelhilight"
         minSdk = 37
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "2.0"
     }
 
     buildFeatures {
@@ -36,8 +36,8 @@ dependencies {
     implementation(platform("androidx.compose:compose-bom:2025.02.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
 
-    // Shizuku SDK：用於免 Root 取得系統 LightsManager 硬體控制權限
     val shizukuVersion = "13.1.5"
     implementation("dev.rikka.shizuku:api:$shizukuVersion")
     implementation("dev.rikka.shizuku:provider:$shizukuVersion")
