@@ -6,12 +6,12 @@ plugins {
 
 android {
     namespace = "com.custom.pixelhilight"
-    compileSdk = 37
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.custom.pixelhilight"
-        minSdk = 37
-        targetSdk = 37
+        minSdk = 34
+        targetSdk = 35
         versionCode = 2
         versionName = "2.0"
     }
