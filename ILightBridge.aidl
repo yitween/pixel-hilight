@@ -1,7 +1,7 @@
 package com.custom.pixelhilight;
 
 interface ILightBridge {
-    void triggerHiLight(int argbColor, int durationMs);
+    void triggerEffect(int argbColor, int effectId, float brightness, float speed, int durationMs);
     void turnOff();
     void destroy();
 }
