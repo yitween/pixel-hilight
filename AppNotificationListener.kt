@@ -1,19 +1,19 @@
 package com.custom.pixelhilight
 
+import android.app.Notification
+import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.ServiceConnection
+import android.content.pm.PackageManager
 import android.os.IBinder
+import android.os.PowerManager
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import rikka.shizuku.Shizuku
+import java.util.Calendar
 
 class AppNotificationListener : NotificationListenerService() {
-
-    companion object {
-        const val PKG_LINE = "jp.naver.line.android"
-        const val PKG_INSTAGRAM = "com.instagram.android"
-    }
 
     private var lightBridge: ILightBridge? = null
 
@@ -23,7 +23,7 @@ class AppNotificationListener : NotificationListenerService() {
         .daemon(false)
         .processNameSuffix("hilight_service")
         .debuggable(false)
-        .version(1)
+        .version(2)
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -41,7 +41,7 @@ class AppNotificationListener : NotificationListenerService() {
     }
 
     private fun bindShizukuServiceIfReady() {
-        if (Shizuku.pingBinder() && Shizuku.checkSelfPermission() == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+        if (Shizuku.pingBinder() && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
             if (lightBridge == null) {
                 Shizuku.bindUserService(userServiceArgs, serviceConnection)
             }
@@ -50,33 +50,42 @@ class AppNotificationListener : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         val pkg = sbn?.packageName ?: return
-        // 忽略群組摘要通知，避免單則訊息重複閃爍兩次
-        if (sbn.isGroup && (sbn.notification.flags and android.app.Notification.FLAG_GROUP_SUMMARY) != 0) {
+        if (sbn.isGroup && (sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY) != 0) {
             return
         }
 
+        val appPreset = SUPPORTED_APPS.find { it.pkg == pkg } ?: return
         val prefs = getSharedPreferences("hilight_prefs", Context.MODE_PRIVATE)
+
+        // 1. 檢查該 App 是否啟用燈效
+        if (!prefs.getBoolean("${pkg}_enabled", true)) return
+
+        // 2. 智慧情境檢查：僅在螢幕關閉時亮燈
+        if (prefs.getBoolean("only_screen_off", false)) {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            if (pm.isInteractive) return
+        }
+
+        // 3. 智慧情境檢查：跟隨系統勿擾模式
+        if (prefs.getBoolean("respect_dnd", true)) {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            if (nm.currentInterruptionFilter != NotificationManager.INTERRUPTION_FILTER_ALL) return
+        }
+
+        // 4. 智慧情境檢查：夜間休眠時段 (23:00 - 07:00)
+        if (prefs.getBoolean("quiet_hours", false)) {
+            val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+            if (hour >= 23 || hour < 7) return
+        }
+
+        val color = prefs.getInt("${pkg}_color", appPreset.defaultColor)
+        val effectId = prefs.getInt("${pkg}_effect", appPreset.defaultEffect.id)
+        val brightness = prefs.getFloat("global_brightness", 0.85f)
+        val speed = prefs.getFloat("global_speed", 1.0f)
         val durationMs = prefs.getInt("duration_sec", 4) * 1000
 
-        when (pkg) {
-            PKG_LINE -> {
-                if (prefs.getBoolean("line_enabled", true)) {
-                    val color = prefs.getInt("line_color", 0xFF06C755.toInt()) // LINE 綠色
-                    triggerLed(color, durationMs)
-                }
-            }
-            PKG_INSTAGRAM -> {
-                if (prefs.getBoolean("ig_enabled", true)) {
-                    val color = prefs.getInt("ig_color", 0xFFE1306C.toInt()) // IG 桃紫色
-                    triggerLed(color, durationMs)
-                }
-            }
-        }
-    }
-
-    private fun triggerLed(color: Int, durationMs: Int) {
         bindShizukuServiceIfReady()
-        lightBridge?.triggerHiLight(color, durationMs)
+        lightBridge?.triggerEffect(color, effectId, brightness, speed, durationMs)
     }
 
     override fun onDestroy() {
