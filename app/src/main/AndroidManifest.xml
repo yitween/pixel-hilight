@@ -1,9 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- 允許 Android 系統讓本 App 偵測並連線至 Shizuku -->
+    <!-- Shizuku 伺服器掃描與派發 Binder 的必要權限宣告 -->
+    <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
+
+    <!-- 允許本 App 偵測並連線至 Shizuku 或其相容分支 -->
     <queries>
         <package android:name="moe.shizuku.privileged.api" />
+        <package android:name="com.gfxgamerlab.shizukuplus" />
     </queries>
 
     <application
