@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.IBinder
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
@@ -59,6 +60,7 @@ class MainActivity : ComponentActivity() {
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             lightBridge = ILightBridge.Stub.asInterface(service)
+            Toast.makeText(this@MainActivity, "已成功連線至 Pixel 11 Pro 燈圈", Toast.LENGTH_SHORT).show()
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -66,11 +68,31 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val binderReceivedListener = Shizuku.OnBinderReceivedListener {
+        tryBindServiceIfPermitted()
+    }
+
+    private val permissionResultListener = Shizuku.OnRequestPermissionResultListener { requestCode, grantResult ->
+        if (requestCode == 1001 && grantResult == PackageManager.PERMISSION_GRANTED) {
+            Shizuku.bindUserService(userServiceArgs, serviceConnection)
+        } else {
+            Toast.makeText(this, "未取得 Shizuku 授權", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun tryBindServiceIfPermitted() {
+        if (Shizuku.pingBinder() && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
+            if (lightBridge == null) {
+                Shizuku.bindUserService(userServiceArgs, serviceConnection)
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (Shizuku.pingBinder() && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
-            Shizuku.bindUserService(userServiceArgs, serviceConnection)
-        }
+        Shizuku.addBinderReceivedListenerSticky(binderReceivedListener)
+        Shizuku.addRequestPermissionResultListener(permissionResultListener)
+        tryBindServiceIfPermitted()
 
         setContent {
             MaterialTheme(
@@ -84,27 +106,41 @@ class MainActivity : ComponentActivity() {
                     HiLightStudioApp(
                         isConnected = lightBridge != null,
                         onConnectShizuku = {
-                            if (Shizuku.pingBinder()) {
-                                if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
-                                    Shizuku.bindUserService(userServiceArgs, serviceConnection)
-                                } else {
-                                    Shizuku.requestPermission(1001)
-                                }
+                            if (!Shizuku.pingBinder()) {
+                                Toast.makeText(
+                                    this,
+                                    "偵測不到 Shizuku，請確認 Shizuku 正在執行後重開本 App",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            } else if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
+                                Shizuku.bindUserService(userServiceArgs, serviceConnection)
+                            } else {
+                                Shizuku.requestPermission(1001)
                             }
                         },
                         onTriggerHardware = { color, effect, brightness, speed, durationSec ->
-                            lightBridge?.triggerEffect(
-                                color,
-                                effect.id,
-                                brightness,
-                                speed,
-                                durationSec * 1000
-                            )
+                            if (lightBridge == null) {
+                                Toast.makeText(this, "請先點擊右上角「授權硬體」", Toast.LENGTH_SHORT).show()
+                            } else {
+                                lightBridge?.triggerEffect(
+                                    color,
+                                    effect.id,
+                                    brightness,
+                                    speed,
+                                    durationSec * 1000
+                                )
+                            }
                         }
                     )
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        Shizuku.removeBinderReceivedListener(binderReceivedListener)
+        Shizuku.removeRequestPermissionResultListener(permissionResultListener)
     }
 }
 
@@ -120,7 +156,6 @@ fun HiLightStudioApp(
     var selectedTab by remember { mutableIntStateOf(0) }
     var selectedApp by remember { mutableStateOf(SUPPORTED_APPS.first()) }
 
-    // 全域參數狀態
     var brightness by remember { mutableFloatStateOf(prefs.getFloat("global_brightness", 0.85f)) }
     var speed by remember { mutableFloatStateOf(prefs.getFloat("global_speed", 1.0f)) }
     var durationSec by remember { mutableIntStateOf(prefs.getInt("duration_sec", 4)) }
@@ -128,7 +163,6 @@ fun HiLightStudioApp(
     var respectDnd by remember { mutableStateOf(prefs.getBoolean("respect_dnd", true)) }
     var quietHours by remember { mutableStateOf(prefs.getBoolean("quiet_hours", false)) }
 
-    // 當前選中 App 的專屬狀態
     var appEnabled by remember(selectedApp) {
         mutableStateOf(prefs.getBoolean("${selectedApp.pkg}_enabled", true))
     }
@@ -149,7 +183,6 @@ fun HiLightStudioApp(
         verticalArrangement = Arrangement.spacedBy(14.dp),
         contentPadding = PaddingValues(top = 12.dp, bottom = 32.dp)
     ) {
-        // 1. 頂部標題與硬體連線狀態列
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -201,7 +234,6 @@ fun HiLightStudioApp(
             }
         }
 
-        // 2. 擬真 8-LED 燈圈即時預覽卡片
         item {
             LedRingPreviewCard(
                 appName = selectedApp.displayName,
@@ -218,7 +250,6 @@ fun HiLightStudioApp(
             )
         }
 
-        // 3. 分頁切換器
         item {
             Row(
                 modifier = Modifier
@@ -251,7 +282,6 @@ fun HiLightStudioApp(
         }
 
         if (selectedTab == 0) {
-            // 4A. App 選擇橫向列
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(SUPPORTED_APPS) { app ->
@@ -289,7 +319,6 @@ fun HiLightStudioApp(
                 }
             }
 
-            // 4B. 該 App 的細緻燈效與 RGB 調色卡片
             item {
                 AppFineTuningCard(
                     app = selectedApp,
@@ -315,7 +344,6 @@ fun HiLightStudioApp(
                 )
             }
         } else {
-            // 5. 全域參數與智慧情境控制
             item {
                 SmartControlsCard(
                     brightness = brightness,
@@ -403,7 +431,6 @@ fun LedRingPreviewCard(
                 )
             }
 
-            // 8 顆 LED 燈圈畫布
             Box(
                 modifier = Modifier
                     .size(148.dp)
@@ -533,13 +560,13 @@ fun AppFineTuningCard(
     onPreviewHardware: () -> Unit
 ) {
     val swatches = listOf(
-        0xFF06C755.toInt(), // LINE 綠
-        0xFFE1306C.toInt(), // IG 桃紅
-        0xFF00E5FF.toInt(), // 冰晶藍
-        0xFFFFAB00.toInt(), // 琥珀黃
-        0xFFAA00FF.toInt(), // 霓虹紫
-        0xFFFF3D00.toInt(), // 烈焰橘
-        0xFFFFFFFF.toInt()  // 純白光
+        0xFF06C755.toInt(),
+        0xFFE1306C.toInt(),
+        0xFF00E5FF.toInt(),
+        0xFFFFAB00.toInt(),
+        0xFFAA00FF.toInt(),
+        0xFFFF3D00.toInt(),
+        0xFFFFFFFF.toInt()
     )
 
     val red = ((selectedColor shr 16) and 0xFF).toFloat()
@@ -571,7 +598,6 @@ fun AppFineTuningCard(
 
             HorizontalDivider(color = BorderSubtle)
 
-            // 燈效模式選擇
             Text("動態燈效模式", fontSize = 13.sp, color = Color(0xFFB0BCCF))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(LightEffect.entries) { effect ->
@@ -583,7 +609,6 @@ fun AppFineTuningCard(
                 }
             }
 
-            // 精選色票 + Hex 色碼
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -619,7 +644,6 @@ fun AppFineTuningCard(
                 }
             }
 
-            // RGB 三原色細部滑桿
             RgbSliderRow("R", red, Color(0xFFFF5252)) { newR ->
                 onColorChange(Color(newR.toInt(), green.toInt(), blue.toInt()).toArgb())
             }
@@ -681,7 +705,6 @@ fun SmartControlsCard(
         ) {
             Text("全域硬體與智慧情境", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
 
-            // 亮度滑桿
             Column {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("LED 輸出亮度", fontSize = 13.sp, color = Color(0xFFB0BCCF))
@@ -694,7 +717,6 @@ fun SmartControlsCard(
                 )
             }
 
-            // 動態速度滑桿
             Column {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("動態燈效速度", fontSize = 13.sp, color = Color(0xFFB0BCCF))
@@ -707,7 +729,6 @@ fun SmartControlsCard(
                 )
             }
 
-            // 持續秒數滑桿
             Column {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("單次通知持續時間", fontSize = 13.sp, color = Color(0xFFB0BCCF))
