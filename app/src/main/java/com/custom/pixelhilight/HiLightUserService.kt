@@ -35,7 +35,11 @@ class HiLightUserService(private val context: Context) : ILightBridge.Stub() {
     ) {
         val manager = getLightsManager() ?: return
         val rgbLights = manager.lights.filter { light ->
-            light.hasRgbControl() || light.type == Light.LIGHT_TYPE_MICROPHONE
+            light.hasRgbControl() || light.type == 8
+        }.ifEmpty {
+            manager.lights.filter {
+                it.type != Light.LIGHT_TYPE_INPUT && it.type != Light.LIGHT_TYPE_KEYBOARD_BACKLIGHT
+            }
         }
         if (rgbLights.isEmpty()) return
 
@@ -60,7 +64,6 @@ class HiLightUserService(private val context: Context) : ILightBridge.Stub() {
 
                 renderFrame(rgbLights, argbColor, effectId, safeBrightness, safeSpeed, elapsed)
 
-                // 恆亮模式不需高頻重繪，僅排程到期熄滅；動態燈效以 ~30 FPS 更新
                 if (effectId == LightEffect.SOLID.id) {
                     animHandler.postDelayed(this, safeDuration - elapsed)
                 } else {
